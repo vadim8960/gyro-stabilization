@@ -2,6 +2,14 @@
 
 #include "AX12A.h"
 
+#define k 0.01
+
+double change = 0;
+unsigned long timetook = 0;
+unsigned long lasttook = 0;
+double angles[3] = {0, 0, 0};
+double zero_position_gyro[3] = {0, 0, 0};
+
 MPU9250_DMP mpu;
 
 void setup() {
@@ -19,31 +27,73 @@ void setup() {
   mpu.dmpEnable3Quat();
   while (!mpu.fifoAvailable() && !mpu.dmpUpdateFifo() == INV_SUCCESS); 
 
-  // ax12a.begin(1000000, 2, &Serial1);
+  for (unsigned iter = 0; iter < 100; ++iter) {
+    mpu.updateFifo();
+    zero_position_gyro[0] += mpu.calcGyro(mpu.gx);
+    zero_position_gyro[1] += mpu.calcGyro(mpu.gy);
+    zero_position_gyro[2] += mpu.calcGyro(mpu.gz);
+  }
+
+  zero_position_gyro[0] /= 100.0;
+  zero_position_gyro[1] /= 100.0;
+  zero_position_gyro[2] /= 100.0;
+
+  ax12a.begin(1000000, 2, &Serial1);
 }
 
-int change = 0;
-double position = 0;
-unsigned long timetook = 0;
-unsigned long lasttook = 0;
+double clamp(double v) {
+  if (v > 1.0)
+    return 1.0;
+  if (v < -1.0)
+    return -1.0;
+  return v;
+}
 
 void loop() {
   mpu.updateGyro();
   mpu.updateAccel();
-  double gy = mpu.calcGyro(mpu.gy);
-  double ay = mpu.calcAccel(mpu.ay);
-  if (fabs(gy + 1) > 3)
-    change = gy + 1;
+
+  double acc[3] = {0, 0, 0};
+  acc[0] = mpu.calcAccel(mpu.ax);
+  acc[1] = mpu.calcAccel(mpu.ay);
+  acc[2] = mpu.calcAccel(mpu.az);
+  double gyr[3] = {0, 0, 0};
+  gyr[0] = mpu.calcGyro(mpu.gx);
+  gyr[1] = mpu.calcGyro(mpu.gy);
+  gyr[2] = mpu.calcGyro(mpu.gz);
 
   lasttook = timetook;
   timetook = millis();
 
-  double dt = (double(timetook) - double(lasttook)) / 1000.0;
-  double degch = change * dt;
+  double change[3] = {0, 0, 0};
+  double dt = (timetook - lasttook) / 1000.0;
 
-  position += degch;
-  
-  Serial.println(position);
-  change = 0;
+
+  for (unsigned iter = 0; iter < 3; ++iter) {
+    if (fabs(gyr[iter] - zero_position_gyro[iter]) > 5.0) 
+      gyr[iter] = gyr[iter] - zero_position_gyro[iter];
+  }
+
+  angles[0] = (1 - k) * (angles[0] + gyr[0] * dt) + acc[0] * k;
+  angles[1] = (1 - k) * (angles[1] + gyr[1] * dt) + acc[1] * k;
+  angles[2] = (1 - k) * (angles[2] + gyr[2] * dt) + acc[2] * k;
+
+  double norm = 0;
+  for (unsigned iter = 0; iter < 3; ++iter)
+    norm += (angles[iter] * angles[iter]);
+  norm = sqrt(norm);
+
+  for (unsigned iter = 0; iter < 3; ++iter) {
+    angles[iter] /= norm;
+  }
+
+  for (unsigned iter = 0; iter < 3; ++iter) {
+    Serial.print(angles[iter]); Serial.print(' ');
+  }
+  Serial.println();
+
+  ax12a.turn(1, angles[1] - 0.61 > 0, (angles[1] - 0.61) * 10);
+
   delay(10);
 }
+ 
