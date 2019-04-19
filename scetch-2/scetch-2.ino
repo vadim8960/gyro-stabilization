@@ -14,6 +14,13 @@ MPU9250_DMP mpu;
 
 void setup() {
   Serial.begin(9600);
+
+  ax12a.begin(1000000, 2, &Serial1);
+  ax12a.setEndless(1, false);
+  ax12a.moveSpeed(1, 512, 100);
+  delay(3000);
+  ax12a.setEndless(1, true);
+
   Wire.begin();
   if (mpu.begin() != INV_SUCCESS) {
     while (1) {
@@ -38,16 +45,22 @@ void setup() {
   zero_position_gyro[1] /= 100.0;
   zero_position_gyro[2] /= 100.0;
 
-  ax12a.begin(1000000, 2, &Serial1);
+  Serial.println("End setup");
+  delay(3000);
 }
 
-double clamp(double v) {
-  if (v > 1.0)
-    return 1.0;
-  if (v < -1.0)
-    return -1.0;
+double clamp(double v, double v_min, double v_max) {
+  if (v > v_max)
+    return v_max;
+  if (v < v_min)
+    return v_min;
   return v;
 }
+
+double my_map(double x, double in_min, double in_max, double out_min, double out_max) {
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
 
 void loop() {
   mpu.updateGyro();
@@ -92,8 +105,15 @@ void loop() {
   }
   Serial.println();
 
-  ax12a.turn(1, angles[1] - 0.61 > 0, (angles[1] - 0.61) * 10);
+  double v = clamp(angles[1], -1.0, -0.22);
+  
+  v = my_map(v, -1.0, -0.22, -1.0, 1.0);
+  // Serial.println(v);
+
+  double error = v;
+  ax12a.turn(1, error > 0, (int) (fabs(error) * 125));
 
   delay(10);
 }
  
+  
